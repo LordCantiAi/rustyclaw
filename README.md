@@ -37,12 +37,13 @@ Skills carry **provenance** — not just *what* to do, but *where* it was learne
 ## Design Principles
 
 1. **Functional composition over inheritance** — Traits, not class hierarchies
-2. **Declarative intent over imperative code** — YAML config, not hardcoded behavior
-3. **Lifecycle events over timer polling** — React to state changes, don't poll
-4. **Open/Closed** — Add Signal today, Discord tomorrow. Never modify core.
-5. **Singleton identity** — One assistant, one mind, one continuity
-6. **Degraded, not dead** — The service always boots. Invalid config → generate defaults, declare the problem, let the LLM fix it.
-7. **Vertical TDD** — One test, one implementation, repeat.
+2. **Enums + Traits for semantic correctness** — Invalid states are unrepresentable. A session is `Active(uuid)` or `Rotating(flush_state)`, never an ambiguous string. Traits define behavioral contracts the compiler enforces.
+3. **Declarative intent over imperative code** — YAML config, not hardcoded behavior
+4. **Lifecycle events over timer polling** — React to state changes, don't poll
+5. **Open/Closed** — Add Signal today, Discord tomorrow. Never modify core.
+6. **Singleton identity** — One assistant, one mind, one continuity
+7. **Degraded, not dead** — The service always boots. Invalid config → generate defaults, declare the problem, let the LLM fix it.
+8. **Vertical TDD** — One test, one implementation, repeat.
 
 ## Architecture
 

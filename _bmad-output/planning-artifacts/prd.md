@@ -45,6 +45,8 @@ The product promise is: **"Your memory and muscle memory never disappear."** Ses
 
 **Zero-overhead orchestration.** LLM inference is the bottleneck. Everything around it — session management, memory lookup, scheduling, config — must contribute zero perceptible latency. Rust's ownership model semantically enforces the operational structure while its runtime efficiency ensures the scaffolding never becomes the constraint.
 
+**Type-driven correctness.** Enums with associated data encode every valid state transition — a session is `Active(uuid)` or `Rotating(flush_state)` or `Degraded(reason)`, never an ambiguous string. Traits define behavioral contracts (channel adapters, queue backends, model adapters) that the compiler enforces. Invalid states are unrepresentable. This isn't defensive programming — it's making the wrong thing impossible to express.
+
 **Built to outlast.** This code needs to survive model generations, API changes, and years of evolution. No upstream to chase. No fork to rebase. Our code, our principles, our timeline.
 
 ## Cognitive Architecture
