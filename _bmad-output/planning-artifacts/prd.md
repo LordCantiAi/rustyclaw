@@ -122,7 +122,7 @@ The Habit Dojo MCP server serves dual duty: **skill matching** ("What applies he
 
 | Metric | Target | How Measured |
 |--------|--------|-------------|
-| Message round-trip (resumed session) | ≤ 10s | Structured logs (enqueue → response sent) |
+| Message round-trip (resumed session) | ≤ 10s end-to-end | Structured logs (enqueue → response sent). Includes Signal transport + LLM inference. RustyClaw's own overhead target is < 500ms (see NFR1). |
 | Context loss during rotation | Zero | Memory file diff before/after rotation |
 | Memory pre-flush guarantee | 100% | Event log: flush_complete before every rotate |
 | Cron job fire rate | 100% | Scheduler audit log |
@@ -417,61 +417,65 @@ RustyClaw is a single-binary systemd-managed daemon running on Linux (Canti, Ubu
 
 ### Message Routing
 
+*Note: Media/attachment handling (images, files, voice notes) is deferred to Growth phase. MVP supports text messages only.*
+
 - FR1: Jay can send a message via Signal and receive a response from Canti
 - FR2: Jay can see a typing indicator while Canti is composing a response
 - FR3: RustyClaw can queue inbound messages when Canti is busy processing another request
 - FR4: RustyClaw can prioritize interactive messages over scheduled/cron messages
 - FR5: Jay can be authenticated via sender allowlist before messages are processed
 - FR6: RustyClaw can reject messages from unauthorized senders silently
+- FR7: RustyClaw can send emoji reactions on Signal messages (e.g., acknowledge receipt, express sentiment)
 
 ### Session Lifecycle
 
-- FR7: RustyClaw can create a new Claude session with assembled system prompt
-- FR8: RustyClaw can resume an existing Claude session by persisted UUID
-- FR9: RustyClaw can persist session UUID to disk so sessions survive restarts
-- FR10: RustyClaw can monitor context usage from Claude response metrics
-- FR11: RustyClaw can inject system messages at soft threshold to encourage memory writes
-- FR12: RustyClaw can enforce pre-rotation memory flush (instruct → wait for confirmation → rotate)
-- FR13: RustyClaw can rotate sessions with summary injection into the new session
-- FR14: RustyClaw can perform daily scheduled rotation at configured time
-- FR15: RustyClaw can flush memory on graceful shutdown (SIGTERM)
+- FR8: RustyClaw can create a new Claude session with assembled system prompt
+- FR9: RustyClaw can resume an existing Claude session by persisted UUID
+- FR10: RustyClaw can persist session UUID to disk so sessions survive restarts
+- FR11: RustyClaw can monitor context usage from Claude response metrics
+- FR12: RustyClaw can inject system messages at soft threshold to encourage memory writes
+- FR13: RustyClaw can enforce pre-rotation memory flush (instruct → wait for confirmation → rotate)
+- FR14: RustyClaw can rotate sessions with summary injection into the new session
+- FR15: RustyClaw can perform daily scheduled rotation at configured time
+- FR16: RustyClaw can flush memory on graceful shutdown (SIGTERM)
 
 ### Memory Persistence (Declarative)
 
-- FR16: RustyClaw can assemble system prompts from configured markdown files (SOUL.md, USER.md, MEMORY.md, daily files)
-- FR17: RustyClaw can index memory files into pgvector embeddings as files change
-- FR18: Canti can recall relevant context via semantic similarity search (embeddings) without scanning full files
-- FR19: RustyClaw can maintain dual-store consistency between source files and retrieval index
-- FR20: RustyClaw can asynchronously index memory file changes into the retrieval store without blocking the active session
+- FR17: RustyClaw can assemble system prompts from configured markdown files (SOUL.md, USER.md, MEMORY.md, daily files)
+- FR18: RustyClaw can index memory files into pgvector embeddings as files change
+- FR19: Canti can recall relevant context via semantic similarity search (embeddings) without scanning full files
+- FR20: RustyClaw can maintain dual-store consistency between source files and retrieval index
+- FR21: RustyClaw can asynchronously index memory file changes into the retrieval store without blocking the active session
 
 ### Muscle Memory (Procedural — Habit Dojo)
 
-- FR21: RustyClaw can load Habit Dojo skills into the system prompt based on relevance
-- FR22: Canti can query the skill registry for matching habits given a task context
-- FR23: Canti can inspect a skill's provenance (origin, reasoning, what it replaced)
-- FR24: Canti can install new skills via the Habit Dojo with full provenance metadata
-- FR25: RustyClaw can position skills in cache-aware prompt zones for optimal cache hit rates
+- FR22: RustyClaw can load Habit Dojo skills into the system prompt based on relevance
+- FR23: Canti can query the skill registry for matching habits given a task context
+- FR24: Canti can inspect a skill's provenance (origin, reasoning, what it replaced)
+- FR25: Canti can install new skills via the Habit Dojo with full provenance metadata
+- FR26: RustyClaw can position skills in cache-aware prompt zones for optimal cache hit rates
 
 ### Scheduled Operations
 
-- FR26: RustyClaw can execute cron jobs on configured schedules (cron expressions, intervals, one-shot)
-- FR27: RustyClaw can persist cron job state across restarts
-- FR28: RustyClaw can yield scheduled work to interactive messages (priority queue)
-- FR29: Jay can add, modify, or disable cron jobs via configuration
+- FR27: RustyClaw can execute cron jobs on configured schedules (cron expressions, intervals, one-shot)
+- FR28: RustyClaw can persist cron job state across restarts
+- FR29: RustyClaw can yield scheduled work to interactive messages (priority queue)
+- FR30: Jay can add, modify, or disable cron jobs via configuration
 
 ### Observability & Operations
 
-- FR30: Jay can query a health endpoint for system status (uptime, queue depth, context usage, last message time)
-- FR31: RustyClaw can emit structured JSON logs for all significant events
-- FR32: RustyClaw can hot-reload configuration from file changes without restart
-- FR33: RustyClaw can integrate with systemd watchdog (sd_notify)
-- FR34: Jay can view operational metrics (cache hit rates, token usage, response latency)
+- FR31: Jay can query a health endpoint for system status (uptime, queue depth, context usage, last message time)
+- FR32: RustyClaw can emit structured JSON logs for all significant events
+- FR33: RustyClaw can hot-reload configuration from file changes without restart
+- FR34: RustyClaw can integrate with systemd watchdog (sd_notify)
+- FR35: RustyClaw can generate a known-good default configuration on startup when config is missing, corrupted, or invalid
+- FR36: Jay can view operational metrics (cache hit rates, token usage, response latency)
 
 ### Prompt Architecture
 
-- FR35: RustyClaw can assemble prompts in zone-based layout (Zone 1: static identity, Zone 2: skills, Zone 3: conversation)
-- FR36: RustyClaw can track cache hit rates per zone to inform optimization
-- FR37: RustyClaw can collect metrics that feed into future OPT self-tuning
+- FR37: RustyClaw can assemble prompts in zone-based layout (Zone 1: static identity, Zone 2: skills, Zone 3: conversation)
+- FR38: RustyClaw can track cache hit rates per zone to inform optimization
+- FR39: RustyClaw can collect metrics that feed into future OPT self-tuning
 
 ### Risk Mitigation Strategy
 
