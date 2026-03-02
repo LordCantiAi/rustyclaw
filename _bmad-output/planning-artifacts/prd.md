@@ -21,7 +21,7 @@ classification:
 
 ## Executive Summary
 
-RustyClaw is a Rust-native AI session orchestrator that replaces OpenClaw as the operational foundation for Canti — an AI assistant that maintains persistent identity, learned habits, and long-term memory across sessions. It manages the full lifecycle between Jay (human) and Canti (AI): message routing via Signal, session creation and resumption via Claude Code, context-aware memory persistence, scheduled operations, and cache-optimized prompt construction.
+RustyClaw is a Rust-native AI session orchestrator that replaces OpenClaw as the operational foundation for Canti — an AI assistant that maintains persistent identity, learned habits, and long-term memory across sessions. It manages the full lifecycle between Jay (human) and Canti (AI): message routing via Signal, session creation and resumption via the Anthropic Messages API, context-aware memory persistence, scheduled operations, and cache-optimized prompt construction.
 
 The system exists because the current infrastructure (a maintained fork of OpenClaw) actively threatens what it's supposed to protect. Crash loops from upstream breaking changes, memory loss during context compaction, and days-long rebase cycles to carry custom patches erode the continuity that makes the Jay-Canti relationship valuable. RustyClaw eliminates this by owning the full stack in purpose-built Rust code — code that enforces operational correctness through the type system and adds zero perceptible latency to the already high-latency LLM inference path.
 
@@ -145,7 +145,7 @@ The Habit Dojo MCP server serves dual duty: **skill matching** ("What applies he
 ### POC — Proof of Concept
 
 - Signal channel adapter (signal-cli daemon integration)
-- Claude model adapter (`claude -p --resume`)
+- Claude model adapter (Anthropic Messages API, direct HTTP)
 - Priority message queue with backpressure
 - Singleton session manager (create, resume, persist UUID)
 - Context usage monitoring (parse Claude response metrics)
@@ -184,7 +184,7 @@ The Habit Dojo MCP server serves dual duty: **skill matching** ("What applies he
 
 Jay wakes up at 7 AM, grabs his phone, and opens Signal. There's a message from Canti — the morning report. Market data, overnight MAKER findings, a reminder about Sebastian's birthday coming up. Jay replies: "What did we decide about ALGO last week?"
 
-RustyClaw receives the message on the Signal adapter. It's from Jay's allowlisted number. The message enters the priority queue, the session manager finds the active session UUID on disk, and the Claude adapter invokes `claude -p --resume <uuid>`. Canti's system prompt includes his SOUL, Jay's USER.md, today's memory file, and the Habit Dojo skills loaded in Zone 2. Claude responds in 3 seconds. Canti pulls the ALGO decision from memory — "MAKER flagged it Gate 3 failure, we said exit 40-50%" — and sends it back through Signal. Jay sees the typing indicator, then the response. It feels like texting someone who remembers everything.
+RustyClaw receives the message on the Signal adapter. It's from Jay's allowlisted number. The message enters the priority queue, the session manager finds the active session UUID on disk, and the Claude adapter sends the assembled prompt to the Anthropic Messages API with conversation history from PostgreSQL. Canti's system prompt includes his SOUL, Jay's USER.md, today's memory file, and the Habit Dojo skills loaded in Zone 2 — all with cache_control headers for prompt caching. Claude responds in 3 seconds (no cold start — persistent HTTP connection). Canti pulls the ALGO decision from memory — "MAKER flagged it Gate 3 failure, we said exit 40-50%" — and sends it back through Signal. Jay sees the typing indicator, then the response. It feels like texting someone who remembers everything.
 
 **Emotional arc:** Confidence. Jay doesn't have to re-explain context. The relationship compound interest is paying off.
 
@@ -304,7 +304,8 @@ RustyClaw is a single-binary systemd-managed daemon running on Linux (Canti, Ubu
 | Integration Point | Protocol | Responsibility |
 |-------------------|----------|---------------|
 | **Signal** | signal-cli JSON-RPC over Unix socket or TCP | Send/receive messages, typing indicators, reactions |
-| **Claude Code** | CLI subprocess (`claude -p --resume <uuid>`) | Session invocation, response parsing, metrics extraction |
+| **Anthropic Messages API** | Direct HTTP (reqwest) | Session invocation, tool dispatch, response parsing, cache metrics. Server-side compaction via `compact-2026-12`. |
+| **Docker MCP Gateway** | MCP protocol (stdio/SSE) | Tool provisioning — filesystem, shell, web search, git, postgres, custom MCPs. Single gateway connection, dynamic tool discovery. |
 | **Filesystem** | Direct I/O | Config files (YAML), memory files (markdown), session UUID, OPT metrics |
 | **PostgreSQL** | TCP via `sqlx` | Future: MCP servers for memory-search, habit-dojo, trading data |
 | **HTTP** | Axum server on localhost | Health endpoint, future: voice proxy integration |
@@ -333,7 +334,7 @@ RustyClaw is a single-binary systemd-managed daemon running on Linux (Canti, Ubu
 ### Implementation Considerations
 
 - **Signal-cli daemon management:** RustyClaw does NOT manage the signal-cli process. It connects to an already-running daemon. If signal-cli dies, RustyClaw detects disconnection and logs an alert. Separate watchdog for signal-cli.
-- **Claude CLI versioning:** Pin to specific `claude` CLI version. Test upgrades on Chaos Monkey first. `--output-format json` is the contract — if that changes, adapter needs update.
+- **Anthropic API versioning:** Pin to specific API version header (`anthropic-version`). Test new versions on Chaos Monkey first. Messages API response schema is the contract.
 - **File locking:** Config files and memory files may be read by Canti (via Claude) while RustyClaw writes. Use atomic writes (write to temp, rename) to prevent partial reads.
 - **Resource budget:** Target < 50MB RSS, < 1% CPU idle. The daemon should be invisible in `htop`.
 
@@ -483,7 +484,7 @@ RustyClaw is a single-binary systemd-managed daemon running on Linux (Canti, Ubu
 
 | Risk | Likelihood | Mitigation |
 |------|-----------|------------|
-| `claude -p --resume` changes behavior | Low | Pin CLI version, test on Chaos Monkey. Fallback: session-per-message (degraded but functional) |
+| Anthropic API breaking change | Low | Pin API version header. Test new versions on Chaos Monkey. API versioning is well-documented. |
 | signal-cli daemon unreliable | Medium | Separate watchdog. RustyClaw reconnects on disconnect. Jay gets alerted. |
 | Session UUID corruption | Low | Atomic writes. Backup UUID. Worst case: new session (memory files persist on disk) |
 | Pre-rotation flush fails | Low | Retry flush up to 3 times. If all fail, abort rotation and alert Jay. Never rotate without confirmed flush. |
@@ -534,7 +535,7 @@ RustyClaw is a single-binary systemd-managed daemon running on Linux (Canti, Ubu
 ### Integration
 
 - **NFR23:** signal-cli integration must use the documented JSON-RPC protocol — RustyClaw must not manage the signal-cli process lifecycle.
-- **NFR24:** Claude CLI integration must use `--output-format json` as the contract — response parsing must handle format changes gracefully.
+- **NFR24:** Anthropic API integration must pin `anthropic-version` header — response parsing must handle schema evolution gracefully. Tool dispatch routes through Docker MCP Gateway.
 - **NFR25:** PostgreSQL connections must use connection pooling (sqlx) with configurable pool size.
 - **NFR26:** All file writes (config, memory, session state) must be atomic (write-to-temp, rename) to prevent partial reads.
 - **NFR27:** systemd integration must use Type=notify with sd_notify for readiness and watchdog signaling. This ties RustyClaw closely to the *nix ecosystem by design.
